@@ -112,6 +112,9 @@ public class GlazedAddon extends MeteorAddon {
         Modules.get().add(new TriggerBot());
         Modules.get().add(new PearlLandingPredictor());
         Modules.get().add(new AutoShopOrder());
+        Modules.get().add(new LayerLock());
+        Modules.get().add(new ItemESP());
+        Modules.get().add(new FastXP());
 
         // Commands
         Commands.add(new SellHotbarCommand());
