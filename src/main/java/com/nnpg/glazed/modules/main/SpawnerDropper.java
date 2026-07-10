@@ -47,11 +47,11 @@ public class SpawnerDropper extends Module {
 
     private final Setting<Integer> autoReopenInterval = sgGeneral.add(new IntSetting.Builder()
         .name("auto-reopen-interval")
-        .description("Time in minutes to auto-reopen spawner.")
+        .description("Time in seconds to auto-reopen spawner.")
         .defaultValue(10)
         .min(1)
-        .max(600)
-        .sliderMax(600)
+        .max(3600)
+        .sliderMax(300)
         .build()
     );
 
@@ -129,7 +129,7 @@ public class SpawnerDropper extends Module {
 
         // Handle auto-reopen timer
         reopenTimer++;
-        int reopenIntervalTicks = autoReopenInterval.get() * 60 * 20; // minutes to ticks
+        int reopenIntervalTicks = autoReopenInterval.get() * 20; // seconds to ticks
 
         // If waiting for interval just count and wait ty
         if (waitingForInterval) {
@@ -196,20 +196,20 @@ public class SpawnerDropper extends Module {
         // Execute clicks
         switch (currentStep) {
             case 0:
-                mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, 50, 0, SlotActionType.PICKUP, mc.player);
+                mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, 52, 0, SlotActionType.PICKUP, mc.player);
                 currentStep = 1;
                 break;
             case 1:
-                mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, 53, 0, SlotActionType.PICKUP, mc.player);
+                mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, 50, 0, SlotActionType.PICKUP, mc.player);
                 currentStep = 2;
                 checkDelayCounter = 0;
                 break;
             case 3:
-                mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, 50, 0, SlotActionType.PICKUP, mc.player);
+                mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, 52, 0, SlotActionType.PICKUP, mc.player);
                 currentStep = 4;
                 break;
             case 4:
-                mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, 53, 0, SlotActionType.PICKUP, mc.player);
+                mc.interactionManager.clickSlot(screen.getScreenHandler().syncId, 50, 0, SlotActionType.PICKUP, mc.player);
                 currentStep = 5;
                 checkDelayCounter = 0;
                 break;
