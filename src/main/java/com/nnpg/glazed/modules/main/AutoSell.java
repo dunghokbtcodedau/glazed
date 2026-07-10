@@ -50,6 +50,7 @@ public class AutoSell extends Module {
 
     private int delayCounter;
     private boolean shouldReopen = false;
+    private int pendingSlot45Clicks = 0;
 
     public AutoSell() {
         super(GlazedAddon.CATEGORY, "auto-sell", "Automatically sells items.");
@@ -59,11 +60,13 @@ public class AutoSell extends Module {
     public void onActivate() {
         delayCounter = 20;
         shouldReopen = false;
+        pendingSlot45Clicks = 0;
     }
 
     @Override
     public void onDeactivate() {
         shouldReopen = false;
+        pendingSlot45Clicks = 0;
     }
 
     @EventHandler
@@ -94,10 +97,17 @@ public class AutoSell extends Module {
             return;
         }
 
+        // Xử lý click slot 45 nếu đang pending
+        if (pendingSlot45Clicks > 0) {
+            mc.interactionManager.clickSlot(currentScreenHandler.syncId, 45, 0, SlotActionType.PICKUP, mc.player);
+            pendingSlot45Clicks--;
+            delayCounter = delay.get();
+            return;
+        }
+
         if (areAllSellSlotsOccupied(currentScreenHandler)) {
-            if (notifications.get()) info("All sell menu slots (0-35) are occupied. Closing and reopening menu.");
-            mc.player.closeHandledScreen();
-            shouldReopen = true;
+            if (notifications.get()) info("All sell menu slots (0-35) are occupied. Clicking slot 45 twice.");
+            pendingSlot45Clicks = 2;
             delayCounter = delay.get();
             return;
         }
@@ -129,21 +139,14 @@ public class AutoSell extends Module {
 
     private boolean areAllSellSlotsOccupied(ScreenHandler screenHandler) {
         for (int slot = 0; slot <= 35; slot++) {
-            if (slot >= screenHandler.slots.size()) {
-                return false; // If we don't have enough slots, they can't all be occupied
-            }
-
-            ItemStack stack = screenHandler.getSlot(slot).getStack();
-            if (stack.isEmpty()) {
-                return false;
-            }
+            if (slot >= screenHandler.slots.size()) return false;
+            if (screenHandler.getSlot(slot).getStack().isEmpty()) return false;
         }
         return true;
     }
 
     private boolean shouldSellItem(Item item) {
         List<Item> selectedItems = itemList.get();
-
         if (mode.get() == SellMode.Whitelist) {
             return selectedItems.contains(item);
         } else {

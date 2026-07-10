@@ -53,7 +53,7 @@ public class OrderSniper extends Module {
 
     private final Setting<String> minPrice = sgGeneral.add(new StringSetting.Builder()
         .name("min-price")
-        .description("Minimum acceptable price.")
+        .description("Minimum acceptable price per item.")
         .defaultValue("1")
         .build());
 
@@ -286,7 +286,6 @@ public class OrderSniper extends Module {
             case FINAL_EXIT -> {
                 if (mc.currentScreen != null) {
                     mc.player.closeHandledScreen();
-                    // Aspetta un po' prima di continuare per assicurarsi che la GUI sia chiusa (PIZZZZZZAAAA!!!!!!!!)
                     if (ticksSinceStageStart < Math.max(5, delayTicks.get())) return;
                 }
 
@@ -303,7 +302,6 @@ public class OrderSniper extends Module {
             }
 
             case CYCLE_PAUSE -> {
-                // Changed from 25 ticks to 5 ticks (0.25 seconds at 20 TPS)
                 if (ticksSinceStageStart >= Math.max(5, delayTicks.get())) {
                     stage = Stage.REFRESH;
                     stageStart = now;
@@ -315,17 +313,24 @@ public class OrderSniper extends Module {
         }
     }
 
-
-
     private boolean isBlacklisted(String playerName) {
         if (playerName == null || blacklistedPlayers.get().isEmpty()) return false;
         return blacklistedPlayers.get().stream().anyMatch(p -> p.equalsIgnoreCase(playerName));
     }
 
+    /**
+     * Đọc tên người bán từ tooltip đơn hàng.
+     * Định dạng GUI trong ảnh: "Đơn hàng của Zerozzv"
+     * Vẫn giữ lại các pattern tiếng Anh cũ để tương thích ngược với server khác.
+     */
     private String getOrderPlayerName(ItemStack stack) {
         if (stack.isEmpty()) return null;
         List<Text> tooltip = stack.getTooltip(Item.TooltipContext.create(mc.world), mc.player, TooltipType.BASIC);
         Pattern[] patterns = {
+            // Định dạng tiếng Việt: "Đơn hàng của <tên>"
+            Pattern.compile("(?i)đơn\\s*hàng\\s*của\\s*([a-zA-Z0-9_]+)"),
+            Pattern.compile("(?i)của\\s*:?\\s*([a-zA-Z0-9_]+)"),
+            // Các định dạng tiếng Anh cũ
             Pattern.compile("(?i)player\\s*:\\s*([a-zA-Z0-9_]+)"),
             Pattern.compile("(?i)from\\s*:\\s*([a-zA-Z0-9_]+)"),
             Pattern.compile("(?i)by\\s*:\\s*([a-zA-Z0-9_]+)"),
@@ -345,6 +350,27 @@ public class OrderSniper extends Module {
         return null;
     }
 
+    /**
+     * Đọc số lượng còn lại cần giao từ dòng "Đã giao: x/y" (VD: "Đã giao: 430234/500000").
+     * Trả về -1 nếu không tìm thấy.
+     */
+    private long getRemainingQuantity(ItemStack stack) {
+        List<Text> tooltip = stack.getTooltip(Item.TooltipContext.create(mc.world), mc.player, TooltipType.BASIC);
+        Pattern pattern = Pattern.compile("(?i)đã\\s*giao\\s*:?\\s*([\\d.,]+)\\s*/\\s*([\\d.,]+)");
+        for (Text line : tooltip) {
+            String text = line.getString();
+            Matcher m = pattern.matcher(text);
+            if (m.find()) {
+                try {
+                    long delivered = Long.parseLong(m.group(1).replace(".", "").replace(",", ""));
+                    long total = Long.parseLong(m.group(2).replace(".", "").replace(",", ""));
+                    return total - delivered;
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return -1;
+    }
+
     private boolean isMatchingOrder(ItemStack stack) {
         if (!stack.isOf(targetItem.get())) return false;
         double price = getOrderPrice(stack);
@@ -352,30 +378,55 @@ public class OrderSniper extends Module {
         return price >= min;
     }
 
+    /**
+     * Lấy "giá mỗi item" của đơn hàng. Trong tooltip, dòng giá mỗi item
+     * ("Giá mỗi item: $85") luôn xuất hiện TRƯỚC dòng "Đã thanh toán: $x/$y",
+     * nên regex $ đầu tiên khớp được sẽ luôn là giá mỗi item, không phải tổng đã trả.
+     */
     private double getOrderPrice(ItemStack stack) {
         List<Text> tooltip = stack.getTooltip(Item.TooltipContext.create(mc.world), mc.player, TooltipType.BASIC);
         return parseTooltipPrice(tooltip);
     }
 
     private double parseTooltipPrice(List<Text> tooltip) {
-        Pattern pattern = Pattern.compile("\\$([\\d,.]+)([kmb])?", Pattern.CASE_INSENSITIVE);
+        // Ưu tiên dòng có chữ "giá mỗi item" / "price" để tránh nhầm với "đã thanh toán"
+        Pattern priceLinePattern = Pattern.compile("(?i)(giá\\s*mỗi\\s*item|price)\\s*:?\\s*\\$?([\\d,.]+)([kmb])?", Pattern.CASE_INSENSITIVE);
+        Pattern genericPattern = Pattern.compile("\\$([\\d,.]+)([kmb])?", Pattern.CASE_INSENSITIVE);
+
         for (Text line : tooltip) {
             String text = line.getString().toLowerCase().replace(",", "").trim();
-            Matcher matcher = pattern.matcher(text);
+            Matcher matcher = priceLinePattern.matcher(text);
             if (matcher.find()) {
-                try {
-                    double base = Double.parseDouble(matcher.group(1));
-                    String suffix = matcher.group(2) != null ? matcher.group(2).toLowerCase() : "";
-                    return switch (suffix) {
-                        case "k" -> base * 1_000;
-                        case "m" -> base * 1_000_000;
-                        case "b" -> base * 1_000_000_000;
-                        default -> base;
-                    };
-                } catch (NumberFormatException ignored) {}
+                return extractPrice(matcher.group(2), matcher.group(3));
+            }
+        }
+
+        // Fallback: dùng $ đầu tiên tìm thấy nếu không match được dòng "giá mỗi item"
+        for (Text line : tooltip) {
+            String text = line.getString().toLowerCase().replace(",", "").trim();
+            // Bỏ qua dòng "đã thanh toán" để không lấy nhầm tổng tiền
+            if (text.contains("đã thanh toán") || text.contains("thanh toan")) continue;
+            Matcher matcher = genericPattern.matcher(text);
+            if (matcher.find()) {
+                return extractPrice(matcher.group(1), matcher.group(2));
             }
         }
         return -1.0;
+    }
+
+    private double extractPrice(String baseStr, String suffix) {
+        try {
+            double base = Double.parseDouble(baseStr);
+            String s = suffix != null ? suffix.toLowerCase() : "";
+            return switch (s) {
+                case "k" -> base * 1_000;
+                case "m" -> base * 1_000_000;
+                case "b" -> base * 1_000_000_000;
+                default -> base;
+            };
+        } catch (NumberFormatException e) {
+            return -1.0;
+        }
     }
 
     private boolean hasItemsToSell() {
@@ -396,7 +447,6 @@ public class OrderSniper extends Module {
     }
 
     private boolean isShulker(ItemStack stack) {
-
         Item item = stack.getItem();
         String itemName = item.getName().getString().toLowerCase();
         return itemName.contains("shulker") ||
@@ -421,7 +471,6 @@ public class OrderSniper extends Module {
 
     private boolean shulkerContainsTarget(ItemStack shulker) {
         if (!isShulker(shulker)) return false;
-
 
         List<Text> tooltip = shulker.getTooltip(Item.TooltipContext.create(mc.world), mc.player, TooltipType.BASIC);
         String targetName = targetItem.get().getName().getString().toLowerCase();
@@ -467,11 +516,8 @@ public class OrderSniper extends Module {
 
     private long getTransferDelay() {
         if (!shulkerSupport.get()) {
-
             return 30;
         }
-
-
         ItemStack stack = mc.player.getInventory().getStack(transferIndex);
         if (isShulker(stack)) return 200;
         return 50;
@@ -479,11 +525,8 @@ public class OrderSniper extends Module {
 
     private int getTransferDelayTicks() {
         if (!shulkerSupport.get()) {
-
             return Math.max(1, delayTicks.get());
         }
-
-
         ItemStack stack = mc.player.getInventory().getStack(transferIndex);
         if (isShulker(stack)) return Math.max(10, delayTicks.get() * 2);
         return Math.max(3, delayTicks.get());
