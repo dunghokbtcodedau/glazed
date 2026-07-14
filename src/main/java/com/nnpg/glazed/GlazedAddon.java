@@ -116,7 +116,7 @@ public class GlazedAddon extends MeteorAddon {
         Modules.get().add(new LayerLock());
         Modules.get().add(new ItemESP());
         Modules.get().add(new FastXP());
-
+        Modules.get().add(new GlazedAutoSign());
         // Commands
         Commands.add(new SellHotbarCommand());
         Commands.add(new AHItemCommand());
